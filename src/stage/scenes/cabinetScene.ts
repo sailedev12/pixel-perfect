@@ -2,11 +2,15 @@
 // Idle: it drifts on its own, made of static-y dots. Hover: the static clears.
 // Click: the camera flies into the screen, which shows a game menu built from dots.
 import { GAMES } from '../../games/registry';
-import { SAMPLE_LEADERBOARDS, formatScore } from '../../data/sample';
+import { SAMPLE_LEADERBOARDS } from '../../data/sample';
+import { formatScoreFor } from '../../lib/format';
 import { uiSound } from '../../lib/uiSound';
 import { Scene, clamp01, ease, gauss, hexToRgb, type Env, type RGB } from '../scene';
 
-export type CabinetMode = 'idle' | 'menu' | 'board';
+export type CabinetMode = 'idle' | 'menu' | 'board' | 'play';
+
+/** Screen corners in canvas pixels: top-left, top-right, bottom-left, bottom-right. */
+export type Quad = [[number, number], [number, number], [number, number], [number, number]];
 
 interface CabinetGame {
   id: string;
@@ -25,6 +29,9 @@ type Hit = [string, [number, number, number, number]];
 
 const DEPTH = 3.2;
 const NS = 8000, NM = 1600, NSN = 900;
+// Game menu rows on the screen (in the 840 x 570 screen layout).
+const MENU_TOP = 140;
+const MENU_STEP = 76;
 // Color classes.
 const EDGE = 0, PANEL = 1, ACCENT = 2, SGOLD = 3, SWHITE = 4, SDIM = 5, MARQUEE = 6, SNOW = 7;
 /** The bottom of the cabinet fades smoothly to black (1 = fully visible). */
@@ -113,7 +120,7 @@ export class CabinetScene extends Scene {
     color: g.color,
     available: g.available,
     unit: g.scoreUnit,
-    top: SAMPLE_LEADERBOARDS[g.id].map((e) => ({ player: e.player, score: formatScore(e.score) })),
+    top: SAMPLE_LEADERBOARDS[g.id].map((e) => ({ player: e.player, score: formatScoreFor(g, e.score) })),
   }));
   private selected = 0;
   private body = buildBody();
@@ -137,6 +144,13 @@ export class CabinetScene extends Scene {
   private flickerUntil = 0;
   private nextFlicker = 2500;
   private firstFrame = true;
+  // Playing a game on the screen.
+  private playAspect = 1;
+  private full = false;
+  private playFade = 0;
+  /** True once the camera has arrived at the play (or full-page) view. */
+  settled = false;
+  view = { W: 1, H: 1 };
 
   constructor() {
     super();
@@ -168,6 +182,81 @@ export class CabinetScene extends Scene {
     this.handlers.onModeChange?.(m);
   }
 
+  /** Puts a game on the cabinet's screen (`index` into the game list), or `null` to go back to the attract screen. */
+  setPlay(index: number | null, aspect = 1) {
+    if (index === null) {
+      if (this.mode === 'play') {
+        this.mode = 'idle';
+        this.handlers.onModeChange?.('idle');
+      }
+      this.full = false;
+      this.paused = false;
+      this.settled = false;
+      return;
+    }
+    this.selected = index;
+    this.playAspect = aspect;
+    this.settled = false;
+    this.paused = false;
+    if (this.mode !== 'play') {
+      if (this.mode === 'idle') uiSound.zoomIn();
+      this.mode = 'play';
+      this.handlers.onModeChange?.('play');
+    }
+  }
+
+  /** Zooms the camera into the screen until the game fills the page (or back out to the cabinet). */
+  setFull(full: boolean) {
+    if (full === this.full) return;
+    this.full = full;
+    this.paused = false;
+    this.settled = false;
+    if (full) uiSound.zoomIn();
+    else uiSound.zoomOut();
+  }
+
+  /** Where the game sits on the screen right now: the screen area matching the game's shape, in canvas pixels. */
+  fittedQuad(): Quad | null {
+    if (this.mode !== 'play') return null;
+    const [u0, v0, u1, v1] = this.fitRect();
+    return this.quadFor(u0, v0, u1, v1);
+  }
+
+  /** The whole screen (not just the game's part), in canvas pixels. */
+  screenQuad(): Quad | null {
+    return this.mode === 'play' ? this.quadFor(0, 0, 1, 1) : null;
+  }
+
+  /** The cabinet's outline on screen (left, top, right, bottom in canvas pixels), for placing UI beside it. */
+  get bodyBox() {
+    const [x0, y0, x1, y1] = this.bbox;
+    return { x0, y0, x1, y1 };
+  }
+
+  private quadFor(u0: number, v0: number, u1: number, v1: number): Quad {
+    const cam = this.cam, { W, H } = this.view;
+    const cyw = Math.cos(cam.yaw), syw = Math.sin(cam.yaw), cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch), cr = Math.cos(cam.roll), sr = Math.sin(cam.roll);
+    const cx = W / 2 + cam.ox, cy = H / 2 + cam.oy;
+    const at = (u: number, v: number): [number, number] => {
+      const [x, y, z] = scr(u, v);
+      const x1 = x * cyw - z * syw, z1 = x * syw + z * cyw, y2 = y * cp - z1 * sp, z2 = y * sp + z1 * cp;
+      const f = DEPTH / (DEPTH + z2);
+      const qx = x1 * f * cam.S, qy = -y2 * f * cam.S;
+      return [cx + qx * cr - qy * sr, cy + qx * sr + qy * cr];
+    };
+    return [at(u0, v0), at(u1, v0), at(u0, v1), at(u1, v1)];
+  }
+
+  /** The part of the screen (u0, v0, u1, v1) that a game of `playAspect` fills, leaving a thin bezel. */
+  private fitRect(): [number, number, number, number] {
+    const screenAspect = 0.84 / Math.hypot(ST[0] - SB[0], ST[1] - SB[1]);
+    const fu = this.playAspect > screenAspect ? 1 : this.playAspect / screenAspect;
+    const fv = this.playAspect > screenAspect ? screenAspect / this.playAspect : 1;
+    const m = 0.03;
+    const u0 = m + ((1 - 2 * m) * (1 - fu)) / 2, v0 = m + ((1 - 2 * m) * (1 - fv)) / 2;
+    return [u0, v0, 1 - u0, 1 - v0];
+  }
+
   activate() {
     this.firstFrame = true;
     this.stat = 1;
@@ -187,13 +276,19 @@ export class CabinetScene extends Scene {
     if (type === 'move') { this.pointerPos = p; return; }
     if (type === 'leave') { this.pointerPos = [-1e4, -1e4]; return; }
     const inRect = (b: [number, number, number, number]) => p[0] >= b[0] && p[0] <= b[2] && p[1] >= b[1] && p[1] <= b[3];
+    if (this.mode === 'play') return;
     if (this.mode === 'idle') {
       if (inRect(this.bbox)) this.setMode('menu');
       return;
     }
     const h = this.hits.find((x) => inRect(x[1]))?.[0];
     if (!h) return;
-    if (h[0] === 'g') this.setMode('board', +h.slice(1));
+    if (h[0] === 'g') {
+      // A playable game starts straight away; one that's coming soon shows its board instead.
+      const i = +h.slice(1);
+      if (this.games[i].available) this.handlers.onPlay?.(this.games[i].id);
+      else this.setMode('board', i);
+    }
     else if (h === 'exit') this.setMode('idle');
     else if (h === 'back') this.setMode('menu');
     else if (h === 'play') this.handlers.onPlay?.(this.games[this.selected].id);
@@ -201,7 +296,7 @@ export class CabinetScene extends Scene {
 
   private hitsFor(m: CabinetMode): [string, number, number, number, number][] {
     const BOT: [number, number] = [500 / 570, 556 / 570];
-    if (m === 'menu') return [...this.games.map((_, i): [string, number, number, number, number] => ['g' + i, 0.03, (110 + i * 92) / 570, 0.97, (190 + i * 92) / 570]), ['exit', 0.02, BOT[0], 0.3, BOT[1]]];
+    if (m === 'menu') return [...this.games.map((_, i): [string, number, number, number, number] => ['g' + i, 0.03, (MENU_TOP + i * MENU_STEP - MENU_STEP / 2) / 570, 0.97, (MENU_TOP + i * MENU_STEP + MENU_STEP / 2) / 570]), ['exit', 0.02, BOT[0], 0.3, BOT[1]]];
     if (m === 'board') return this.games[this.selected].available ? [['back', 0.02, BOT[0], 0.3, BOT[1]], ['play', 0.7, BOT[0], 0.98, BOT[1]]] : [['back', 0.02, BOT[0], 0.3, BOT[1]]];
     return [];
   }
@@ -234,15 +329,15 @@ export class CabinetScene extends Scene {
       c.fillStyle = '#00f';
       c.fillRect(40, 84, 760, 3);
       this.games.forEach((x, i) => {
-        const y = 150 + i * 92, on = i === hl;
+        const y = MENU_TOP + i * MENU_STEP, on = i === hl;
         const cl = on ? 'g' : x.available ? 'w' : 'b';
-        T((on ? '> ' : '  ') + x.name.toUpperCase(), 40, y, cl, 44);
-        T(x.available ? 'PLAY' : 'SOON', 800, y, cl, 36, 700, 'right');
+        T((on ? '> ' : '  ') + x.name.toUpperCase(), 40, y, cl, 40);
+        T(x.available ? 'PLAY' : 'SOON', 800, y, cl, 32, 700, 'right');
       });
       T('< EXIT', 40, 528, 'b', 30, 500);
     } else {
       T(d.name.toUpperCase(), 420, 52, 'g', 50, 700, 'center');
-      T('SAMPLE SCORES', 40, 112, 'b', 26, 500);
+      T(d.top.length ? 'SAMPLE SCORES' : 'NO ONLINE SCORES YET', 40, 112, 'b', 26, 500);
       T(d.unit.toUpperCase(), 800, 112, 'b', 26, 500, 'right');
       c.fillStyle = '#00f';
       c.fillRect(40, 134, 760, 3);
@@ -325,17 +420,32 @@ export class CabinetScene extends Scene {
       const y2 = c[1] * cpz - c[2] * spz, z2 = c[1] * spz + c[2] * cpz, f = DEPTH / (DEPTH + z2);
       t.ox = -c[0] * f * t.S;
       t.oy = y2 * f * t.S;
+      if (mode === 'play' && this.full) {
+        // Playing on the cabinet keeps the same view as the game menu; zoomed in, the game fills the page.
+        const [u0, v0, u1, v1] = this.fitRect();
+        const gw = 0.84 * (u1 - u0), gh = Math.hypot(ST[0] - SB[0], ST[1] - SB[1]) * (v1 - v0);
+        const gc = scr((u0 + u1) / 2, (v0 + v1) / 2);
+        const gy2 = gc[1] * cpz - gc[2] * spz, gz2 = gc[1] * spz + gc[2] * cpz, gf = DEPTH / (DEPTH + gz2);
+        t.S = Math.min(W / (gw * gf), H / (gh * gf));
+        t.ox = -gc[0] * gf * t.S;
+        t.oy = gy2 * gf * t.S;
+      }
     }
-    const lk = still || this.firstFrame ? 1 : 0.075;
+    const lk = still || this.firstFrame ? 1 : 0.085;
     this.firstFrame = false;
     (Object.keys(t) as (keyof typeof t)[]).forEach((k) => { cam[k] += (t[k] - cam[k]) * lk; });
     const zf = clamp01((cam.S - sIdle) / Math.max(1, sZoom - sIdle));
     const zoomDone = zoomed && Math.abs(cam.S - t.S) < t.S * 0.04;
+    this.view = { W, H };
+    this.settled = mode === 'play' && Math.abs(cam.S - t.S) < t.S * 0.003 && Math.abs(cam.oy - t.oy) < 0.5 && Math.abs(cam.ox - t.ox) < 0.5;
+    // Zoomed all the way in, the game covers everything: stop drawing the cabinet to save the graphics card.
+    if (this.full && this.settled) this.paused = true;
+    this.playFade += ((mode === 'play' ? 1 : 0) - this.playFade) * (still ? 1 : 0.12);
 
     // Screen contents follow the mode; hovering a menu row highlights it.
     const hl = mode === 'menu' && this.hoverId && this.hoverId[0] === 'g' ? +this.hoverId.slice(1) : g;
     const key = `${mode}|${g}|${mode === 'menu' ? hl : ''}`;
-    if (key !== this.sKey) {
+    if (mode !== 'play' && key !== this.sKey) {
       const r = this.screenTargets(mode, g, hl);
       const small = this.sMode === mode && (mode !== 'board' || this.sGame === g);
       if (this.sKey === null) { this.sPos.set(r.out); this.sStart = -1e9; } else { this.sStart = now; this.sDur = small ? 450 : 1100; this.sBurst = small ? 0.04 : 0.16; }
@@ -426,7 +536,8 @@ export class CabinetScene extends Scene {
       const y = sFrom[q + 1] + (sTo[q + 1] - sFrom[q + 1]) * k + swS[q + 1] * bu * 0.6 + Math.sin(now * 0.002 + seedS[i]) * 0.0012;
       const z = sFrom[q + 2] + (sTo[q + 2] - sFrom[q + 2]) * k - swS[q + 2] * bu;
       sPos[q] = x; sPos[q + 1] = y; sPos[q + 2] = z;
-      emit(x, y, z, a * (0.82 + 0.18 * Math.sin(y * 90 + now * 0.006)), 1.6, cls);
+      // While a game plays on the screen, the screen's own dots fade away underneath it.
+      emit(x, y, z, a * (0.82 + 0.18 * Math.sin(y * 90 + now * 0.006)) * (1 - this.playFade), 1.6, cls);
     }
 
     // Marquee. Now and then it flickers like a neon sign with a loose wire.

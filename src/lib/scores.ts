@@ -14,9 +14,14 @@ export function getBest(id: GameId, rulesVersion: number): number {
   }
 }
 
-export function recordResult(result: GameResult) {
+/**
+ * Saves the run if it beats the personal best. 0 means "no best yet".
+ * `lowerIsBetter` is for games scored by time. Runs that didn't finish (`completed: false`) never count.
+ */
+export function recordResult(result: GameResult, lowerIsBetter = false) {
   const prev = getBest(result.gameId, result.rulesVersion);
-  const isNewBest = result.score > prev;
+  if (result.completed === false || result.score <= 0) return { best: prev, isNewBest: false, counted: false };
+  const isNewBest = prev === 0 || (lowerIsBetter ? result.score < prev : result.score > prev);
   if (isNewBest) {
     try {
       localStorage.setItem(bestKey(result.gameId, result.rulesVersion), String(result.score));
@@ -24,7 +29,7 @@ export function recordResult(result: GameResult) {
       // Private mode or storage blocked: the best just isn't remembered.
     }
   }
-  return { best: Math.max(prev, result.score), isNewBest };
+  return { best: isNewBest ? result.score : prev, isNewBest, counted: true };
 }
 
 export function getMuted(): boolean {

@@ -1,3 +1,4 @@
+import { formatRaceTime } from '../lib/format';
 import type { GameDefinition, GameFactory } from './types';
 
 const notYet = (): Promise<GameFactory> => Promise.reject(new Error('This game is not built yet.'));
@@ -34,13 +35,62 @@ export const GAMES: GameDefinition[] = [
     rulesVersion: 1,
     width: 480,
     height: 480,
-    available: false,
+    available: true,
     mobileControls: 'dpad',
     keys: { up: ['ArrowUp', 'w', 'W'], down: ['ArrowDown', 's', 'S'], left: ['ArrowLeft', 'a', 'A'], right: ['ArrowRight', 'd', 'D'] },
-    instructions: [],
-    controls: [],
+    instructions: [
+      'Steer the coil to eat the pink pellets. Each one is 10 points and makes you longer.',
+      'Every 5th pellet drops a gold core worth 50, but only for 5 seconds.',
+      'It speeds up as you grow. Hitting a wall or your own tail ends the run.',
+    ],
+    controls: [
+      ['Arrows or WASD', 'Steer'],
+      ['Swipe or the pad', 'Steer on a phone'],
+    ],
     scoreUnit: 'Score',
-    load: notYet,
+    load: () => import('./coil/coil').then((m) => m.createCoil),
+  },
+  {
+    id: 'hexgl',
+    name: 'HexGL',
+    blurb: 'A futuristic anti-gravity racer by Thibaut Despoulain. Three laps against the clock.',
+    color: '#45c8ff',
+    rulesVersion: 1,
+    width: 1280,
+    height: 720,
+    available: true,
+    mobileControls: 'own',
+    keys: {},
+    instructions: [
+      "HexGL is a 3D racing game made by Thibaut Despoulain. It runs here as the original game, with its own menu.",
+      'Race three laps of the Cityscape track as fast as you can. Your time is your score: lower is better.',
+      'Hitting walls drains your shield. If it runs out the ship is destroyed and the race has no time.',
+      "Pick Start in the game's menu, then click to continue past the controls screen.",
+    ],
+    controls: [
+      ['↑', 'Accelerate'],
+      ['← →', 'Steer'],
+      ['A / D or Q / E', 'Air brakes for sharp turns'],
+      ['Esc', 'Restart the race'],
+      ['Touchscreen', "The game's own touch controls"],
+    ],
+    scoreUnit: 'Time',
+    lowerIsBetter: true,
+    formatScore: formatRaceTime,
+    credits: {
+      author: 'Thibaut Despoulain (BKcore)',
+      authorUrl: 'http://bkcore.com',
+      license: 'MIT License',
+      licenseUrl: '/games/hexgl/LICENSE',
+      sourceUrl: 'https://github.com/BKcore/HexGL',
+      ourCopyUrl: 'https://github.com/sailedev12/pixel-perfect/tree/main/public/games/hexgl',
+      notes: [
+        'Contributors: townxelliot, mahesh.kk. Ship model: Charnel. Track texture: Nobiax.',
+        'Some older files also carry a Creative Commons Attribution-NonCommercial 3.0 notice.',
+        'Changes for this site: analytics removed, a small bridge reports race results. Details in PIXEL-PERFECT.md.',
+      ],
+    },
+    load: () => import('./hexgl/hexgl').then((m) => m.createHexGL),
   },
   {
     id: 'neon-maze',

@@ -190,7 +190,7 @@ button { font: inherit; color: inherit; }
    except on the pages' own controls. */
 .page-shell { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; pointer-events: none; transition: opacity 160ms ease, filter 160ms ease; }
 .page-shell.leaving { opacity: 0; filter: blur(2px); }
-.page-shell > :not(.games-page) { pointer-events: auto; }
+.page-shell > :not(.games-page):not(.play) { pointer-events: auto; }
 .page-shell > * { animation: page-in 380ms ease both; }
 @keyframes page-in { from { opacity: 0; filter: blur(3px); } to { opacity: 1; filter: none; } }
 .ui-fade { opacity: 0; animation: ui-in 500ms ease forwards; animation-delay: var(--d, 0ms); }
@@ -234,6 +234,11 @@ button { font: inherit; color: inherit; }
 }
 .stage:focus-visible { border-color: var(--gold); }
 .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+/* Ported games run in their own page inside the stage. */
+.stage .game-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: #000; }
+.credits h3 { margin: 0; font-size: 15px; color: #fff; }
+.credits p, .credits li { margin: 0; font-size: 12px; line-height: 1.5; color: var(--muted); }
+.credits ul { margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 4px; }
 .overlay {
   position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
   padding: 24px; text-align: center; background: rgba(0, 0, 0, 0.78);
@@ -252,6 +257,8 @@ button { font: inherit; color: inherit; }
 .pad { display: grid; grid-template-columns: repeat(3, 56px); grid-template-rows: repeat(2, 56px); gap: 6px; }
 .pad button { border: 1px solid #333; border-radius: 8px; background: #0b0b0b; color: #fff; font-size: 18px; touch-action: none; }
 .pad button:active { background: #1b1b1b; }
+/* The on-screen pad is for touchscreens; hide it when there's a mouse. */
+@media (hover: hover) and (pointer: fine) { .pad { display: none; } }
 
 .side { width: 300px; flex: none; display: flex; flex-direction: column; gap: 16px; }
 .card { border: 1px solid var(--line-strong); border-radius: 8px; background: var(--raised); padding: 16px; display: flex; flex-direction: column; gap: 12px; }
@@ -316,4 +323,136 @@ tr.you td { color: var(--gold); }
   aspect-ratio: 16 / 9; border: 1px solid var(--line-strong); border-radius: 6px; background-color: #070707;
   background-image: radial-gradient(#1f1f1f 1px, transparent 1.2px); background-size: 12px 12px;
   display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 11px; color: var(--faint);
+}
+
+/* ---------- Game player: the game plays on the cabinet's screen ---------- */
+.play { position: relative; height: 100vh; overflow: hidden; pointer-events: none; }
+@media (max-width: 760px) { .play { height: calc(100vh - 62px); } }
+
+/* The game element is bent onto the cabinet screen with a matrix3d every frame. */
+.cab-screen { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: auto; outline: none; background: #000; opacity: 0; transition: opacity 250ms ease; }
+.cab-screen.on { opacity: 1; }
+.cab-inner { position: absolute; inset: 0; overflow: hidden; }
+.cab-screen.on .cab-inner { animation: power-on 700ms cubic-bezier(.2, .8, .2, 1) both; }
+@keyframes power-on {
+  0%, 35% { transform: scale(1, 0.006); filter: brightness(5); }
+  65% { transform: scale(1, 1); filter: brightness(2.2); }
+  100% { transform: none; filter: none; }
+}
+.cab-inner canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
+.cab-inner .game-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: #000; }
+
+/* Pixel FX: muted, slightly sickly colours, scanlines, dark corners and a faint flicker. */
+.crt { position: absolute; inset: 0; pointer-events: none; display: none; }
+.cab-screen.fx .crt {
+  display: block;
+  background:
+    repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.34) 0, rgba(0, 0, 0, 0.34) calc(var(--scan) * 0.45), transparent calc(var(--scan) * 0.45), transparent var(--scan)),
+    radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.65) 100%),
+    linear-gradient(rgba(40, 255, 170, 0.05), rgba(255, 60, 40, 0.04));
+  animation: crt-flicker 7s infinite;
+}
+.cab-screen.fx canvas, .cab-screen.fx .game-frame { filter: contrast(1.15) saturate(0.7) sepia(0.22) hue-rotate(-14deg) brightness(0.96); }
+@keyframes crt-flicker { 0%, 100% { opacity: 0.92; } 48% { opacity: 1; } 49% { opacity: 0.78; } 50% { opacity: 1; } 80% { opacity: 0.95; } }
+
+/* How-to-play / game-over cards sit over the screen (not bent, so text stays sharp). */
+.screen-overlay { position: absolute; display: flex; align-items: center; justify-content: center; pointer-events: auto; background: rgba(0, 0, 0, 0.74); }
+.overlay-card { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 18px; text-align: center; max-width: 94%; max-height: 100%; overflow: auto; }
+.overlay-card h2 { margin: 0; font-size: 26px; letter-spacing: -0.02em; color: #fff; }
+.overlay-card ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; max-width: 420px; font-size: 13px; line-height: 1.45; color: #cfcfcf; }
+.overlay-card .keys { display: grid; grid-template-columns: auto auto; gap: 5px 14px; font-size: 12px; color: var(--muted); text-align: left; }
+.overlay-card kbd { font-family: var(--mono); font-size: 11px; color: #ededed; border: 1px solid #333; border-radius: 4px; padding: 2px 6px; }
+
+/* The UI around the cabinet. */
+.hud { position: absolute; pointer-events: auto; display: flex; flex-direction: column; gap: 6px; }
+.hud-left { transform: translate(-100%, -50%); align-items: flex-end; text-align: right; }
+.hud-right { transform: translate(0, -50%); width: 280px; max-height: 80vh; overflow: hidden; }
+.hud-bottom { transform: translate(-50%, 0); flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 8px; width: max-content; max-width: 92vw; }
+.hud-big { font-family: var(--mono); font-size: 44px; color: #fff; line-height: 1; text-shadow: 0 0 18px rgba(255, 77, 46, 0.4); margin-bottom: 10px; }
+.hud-mid { font-family: var(--mono); font-size: 22px; color: #fff; }
+.hud-credits { font-size: 11px; line-height: 1.5; margin: 4px 0 0; }
+.hud .card { background: rgba(8, 8, 8, 0.78); }
+.zoom-btn { box-shadow: 0 0 22px rgba(255, 255, 255, 0.12); }
+
+/* Zoomed in: the game fills the page, with a small time box and button bar on top. */
+.hud-corner { left: 16px; top: 14px; padding: 10px 14px; background: rgba(0, 0, 0, 0.6); border: 1px solid #222; border-radius: 8px; }
+.hud-bar { right: 16px; top: 12px; flex-direction: row; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 72%; }
+.hud-bar .btn { min-height: 38px; padding: 0 12px; font-size: 13px; background: rgba(0, 0, 0, 0.6); }
+.hud-bar .btn.primary { background: #fff; }
+.play-pad { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); pointer-events: auto; }
+
+.ui-pop { animation: ui-pop 520ms cubic-bezier(.2, .9, .25, 1.15) both; animation-delay: var(--d, 0ms); }
+@keyframes ui-pop { from { opacity: 0; filter: blur(6px); scale: 0.92; } to { opacity: 1; filter: none; scale: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .cab-screen.on .cab-inner, .ui-pop, .cab-screen.fx .crt { animation: none; }
+}
+
+/* Leaderboard squeezed beside the cabinet screen: stack the heading, smaller rows, long names trimmed. */
+.hud-right.narrow .card { padding: 12px; }
+.hud-right.narrow .board-head { flex-direction: column; align-items: flex-start; gap: 4px; }
+.hud-right.narrow .board-head h3 { font-size: 13px; }
+.hud-right.narrow .board li { font-size: 12px; gap: 6px; grid-template-columns: 16px minmax(0, 1fr) auto; min-height: 28px; }
+.hud-right.narrow .board li > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.hud-right.narrow .muted { font-size: 11px !important; }
+/* The gap beside the screen is narrow at the menu zoom, so the big number shrinks with the page. */
+.hud-left .hud-big { font-size: clamp(22px, 2.1vw, 44px); }
+
+/* ---- Dance mode ---- */
+/* The dancer button takes the top-right corner; the speaker sits just left of it. */
+.content > button.sound-toggle { right: 60px; }
+@media (max-width: 760px) { .content > .sound-toggle { right: 54px; } }
+.content > button.dance-toggle {
+  position: fixed; top: 14px; right: 14px; z-index: 6;
+  width: 38px; height: 38px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid #262626; border-radius: 50%; background: rgba(0, 0, 0, 0.6); color: var(--muted); cursor: pointer;
+  transition: color 200ms ease, border-color 200ms ease, opacity 600ms ease, transform 160ms ease, box-shadow 300ms ease;
+}
+.content > .dance-toggle:hover { color: #fff; border-color: #ff5fa2; box-shadow: 0 0 18px rgba(255, 95, 162, 0.35); }
+.content > .dance-toggle:hover .dancer-icon { animation: dancer-bop 0.47s ease-in-out infinite alternate; }
+.content > .dance-toggle:active { transform: scale(0.94); }
+.content > .dance-toggle.on { opacity: 0.35; background: transparent; }
+.content > .dance-toggle.on:hover, .content > .dance-toggle.on:focus-visible { opacity: 1; }
+@keyframes dancer-bop { from { transform: rotate(-8deg) translateY(1px); } to { transform: rotate(8deg) translateY(-1px); } }
+@media (max-width: 760px) { .content > .dance-toggle { top: 10px; right: 10px; } }
+
+/* Everything but the dancer fades out while she dances. */
+.app .sidebar, .app .page-shell, .content > .sound-toggle { transition: opacity 900ms ease; }
+.app.dancing .sidebar, .app.dancing .page-shell, .app.dancing .content > .sound-toggle { opacity: 0; pointer-events: none; }
+.app.dancing .page-shell * { pointer-events: none !important; }
+
+/* While she dances the stage covers the whole window, but underneath the page and sidebar, so they fade away on top
+   of it (rather than vanishing the moment she's summoned). */
+.stage-layer.full { position: fixed; inset: 0; width: 100vw; height: 100vh; margin: 0; z-index: 0; }
+.app.dancing .sidebar { position: relative; z-index: 1; }
+@media (min-width: 761px) { .app.dancing .sidebar { position: sticky; } }
+
+/* Song credit and a thin progress line along the bottom. */
+.content > .dance-credit {
+  position: fixed; left: 20px; bottom: 18px; z-index: 6;
+  white-space: nowrap; font-size: 11px; letter-spacing: 0.04em; color: #bbb; opacity: 0; animation: dance-credit-in 900ms 1.4s ease forwards;
+}
+.dance-credit a { color: #ff9ccc; }
+.dance-note { color: #ff5fa2; }
+.dance-progress {
+  position: fixed; left: 0; right: 0; bottom: 0; height: 2px; transform-origin: 0 50%;
+  background: linear-gradient(90deg, #7a3cff, #ff5fa2); box-shadow: 0 0 10px #ff5fa2;
+  animation: dance-progress linear forwards;
+}
+@keyframes dance-credit-in { to { opacity: 0.85; } }
+@keyframes dance-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@media (max-width: 760px) {
+  .content > .dance-credit { left: 12px; right: 12px; white-space: normal; }
+  .dance-progress { left: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .content > .dance-toggle:hover .dancer-icon { animation: none; }
+}
+
+/* The dancer video is only read by the particle stage, never shown (it stays in the page so it keeps playing). */
+.dance-video { position: absolute; inset: 0; pointer-events: none; overflow: hidden; display: none; }
+.stage-layer.full .dance-video { display: block; }
+.dance-video video {
+  position: absolute; left: 50%; top: 50%; height: 100%; width: auto; max-width: none;
+  /* She stands a little right of center in the original clip; this centers her. */
+  transform: translate(-59.75%, -50%); opacity: 0;
 }

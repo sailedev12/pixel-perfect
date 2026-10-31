@@ -35,6 +35,8 @@ export const SAMPLE_LEADERBOARDS: Record<GameId, SampleEntry[]> = {
     { player: 'pixelwitch', score: 110488 },
     { player: 'm0th', score: 106631 },
   ],
+  // Ported games get no made-up rankings: their board shows only your own best until the server exists.
+  hexgl: [],
   starfall: [
     { player: 'ardent', score: 391504 },
     { player: 'vexa', score: 340211 },

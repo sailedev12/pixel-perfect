@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom';
 import Segmented from '../components/Segmented';
 import TypeText from '../components/TypeText';
 import { GAMES } from '../games/registry';
-import { SAMPLE_LEADERBOARDS, formatScore } from '../data/sample';
+import { SAMPLE_LEADERBOARDS } from '../data/sample';
 import { getBest } from '../lib/scores';
+import { formatScoreFor } from '../lib/format';
 import { stage } from '../stage/stage';
 
 // The page text arrives while the particles are still settling into the board.
@@ -57,10 +58,22 @@ export default function LeaderboardsPage() {
       <div className="lb-stage" ref={slotRef} />
 
       <div className="lb-foot ui-fade" style={delay(300)}>
-        <span className="sample-badge">SAMPLE DATA</span>
-        <span className="muted" style={{ fontSize: 13 }}>
-          These players and scores are made up. Real rankings need the online leaderboard. Your best is from this browser.
-        </span>
+        {rows.length ? (
+          <>
+            <span className="sample-badge">SAMPLE DATA</span>
+            <span className="muted" style={{ fontSize: 13 }}>
+              These players and scores are made up. Real rankings need the online leaderboard. Your best is from this browser.
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="sample-badge">THIS DEVICE ONLY</span>
+            <span className="muted" style={{ fontSize: 13 }}>
+              No online rankings for {game.name} yet: they need the server. Your best is from this browser.
+              {game.lowerIsBetter ? ' Lower times are better.' : ''}
+            </span>
+          </>
+        )}
         {game.available ? (
           <Link className="btn primary" to={`/play/${game.id}`} style={{ marginLeft: 'auto' }}>
             Play {game.name}
@@ -87,13 +100,13 @@ export default function LeaderboardsPage() {
             <tr key={r.player}>
               <td>{i + 1}</td>
               <td>@{r.player}</td>
-              <td>{formatScore(r.score)}</td>
+              <td>{formatScoreFor(game, r.score)}</td>
             </tr>
           ))}
           <tr>
             <td>-</td>
             <td>You, this device</td>
-            <td>{best > 0 ? formatScore(best) : 'none yet'}</td>
+            <td>{best > 0 ? formatScoreFor(game, best) : 'none yet'}</td>
           </tr>
         </tbody>
       </table>

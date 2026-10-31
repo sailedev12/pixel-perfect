@@ -17,7 +17,14 @@ Rules for a ranked run:
 Server side (database credentials and anything privileged stay on the server only, never in the website code):
 
 - Accept results only for known games and current rules versions.
-- Reject impossible values: negative or non-integer scores, a score too high for the run's length (for Updraft, roughly one point per 1.5 s at most), runs shorter than the minimum, duplicate submissions.
+- Reject impossible values: negative or non-integer scores, a score too high for the run's length, runs shorter than the minimum, duplicate submissions. Per game:
+  - Updraft: roughly one point per 1.5 s at most.
+  - HexGL (ported game, time in milliseconds, lower is better): only finished 3-lap time-attack races count;
+    crashes and the game's "godmode" option never count. The race logic runs inside the original game, not our
+    fixed-step code, so there is no seed + input log to replay yet. A server can only sanity-check times (for
+    example, reject anything faster than the best legitimate laps it has seen). HexGL does record full race data
+    (`RaceData.export()`); sending that with each result would be the first step toward checking times properly.
+  - Coil: scores are multiples of 10. With P pellets and B bonus cores, score = 10·P + 50·B, B ≤ P / 5, and the coil can take at most one step every 4 ticks, so P ≤ ticks / 4.
 - Rate-limit submissions per account and per IP.
 - Later, for top scores: replay the run on the server from `seed` + input log and check the replayed score matches.
 

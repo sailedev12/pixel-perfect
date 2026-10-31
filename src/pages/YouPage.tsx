@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import TypeText from '../components/TypeText';
 import { GAMES } from '../games/registry';
-import { formatScore } from '../data/sample';
+import { formatScoreFor } from '../lib/format';
 import { getBest } from '../lib/scores';
 
 const delay = (ms: number) => ({ '--d': `${ms}ms` }) as CSSProperties;
@@ -39,7 +39,7 @@ export default function YouPage() {
                       {g.name}
                     </span>
                   </td>
-                  <td className="num">{best > 0 ? formatScore(best) : '—'}</td>
+                  <td className="num">{best > 0 ? formatScoreFor(g, best) : '—'}</td>
                   <td style={{ textAlign: 'right' }}>
                     {g.available ? <Link to={`/play/${g.id}`}>Play</Link> : <span className="muted">Soon</span>}
                   </td>

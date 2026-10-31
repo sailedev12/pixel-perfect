@@ -1,7 +1,8 @@
 // The LED scoreboard (Leaderboards tab). The stage morphs the previous scene's dots onto the
 // LED grid; then the results light up row by row. Switching games wipes left to right.
 import { GAMES } from '../../games/registry';
-import { SAMPLE_LEADERBOARDS, formatScore } from '../../data/sample';
+import { SAMPLE_LEADERBOARDS } from '../../data/sample';
+import { formatScoreFor } from '../../lib/format';
 import { getBest } from '../../lib/scores';
 import { uiSound } from '../../lib/uiSound';
 import { GLYPHS } from '../font5x7';
@@ -35,8 +36,8 @@ function boardData(): BoardGame[] {
       name: g.name,
       color: g.color,
       unit: g.scoreUnit,
-      rows: SAMPLE_LEADERBOARDS[g.id].map((e) => ({ player: e.player, score: formatScore(e.score) })),
-      you: best > 0 ? formatScore(best) : '-',
+      rows: SAMPLE_LEADERBOARDS[g.id].map((e) => ({ player: e.player, score: formatScoreFor(g, e.score) })),
+      you: best > 0 ? formatScoreFor(g, best) : '-',
     };
   });
 }
@@ -70,7 +71,12 @@ function buildContent(g: BoardGame) {
   put('TOP 10', 166, 3, DIM, 1, 'right');
   put('#', 2, 22, DIM);
   put('PLAYER', 20, 22, DIM);
-  put('SAMPLE DATA', 64, 22, SAMPLE);
+  // Sample rankings are labeled; games without any say so instead of showing made-up players.
+  if (g.rows.length) put('SAMPLE DATA', 64, 22, SAMPLE);
+  else {
+    put('NO ONLINE SCORES YET', 25, 60, DIM);
+    put('THEY NEED THE SERVER', 25, 72, DIM);
+  }
   put(g.unit, 166, 22, DIM, 1, 'right');
   line(30, DIM);
   g.rows.slice(0, 10).forEach((r, i) => {

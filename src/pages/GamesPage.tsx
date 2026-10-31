@@ -30,7 +30,7 @@ export default function GamesPage() {
             ),
           )}
         </div>
-        <div className="hint">{mode === 'idle' ? 'hover the cabinet to tune it in · click to step inside' : 'click a row on the screen'}</div>
+        <div className="hint">{mode === 'idle' ? 'hover the cabinet to tune it in · click to step inside' : 'click a game to play it'}</div>
       </div>
     </div>
   );

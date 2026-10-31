@@ -9,6 +9,7 @@ import PlayPage from './pages/PlayPage';
 import NotFound from './pages/NotFound';
 import StageLayer from './stage/StageLayer';
 import SoundToggle from './components/SoundToggle';
+import DanceToggle, { useDancing } from './components/DanceToggle';
 
 /** How long the old page's text takes to fade out before the new page's text fades in. */
 const FADE_OUT_MS = 160;
@@ -19,6 +20,8 @@ export default function App() {
   // the page text cross-fades a moment behind.
   const [shown, setShown] = useState(location);
   const [leaving, setLeaving] = useState(false);
+  // While the dancer is on, the rest of the interface fades away.
+  const dancing = useDancing();
 
   useEffect(() => {
     if (location.pathname === shown.pathname) {
@@ -34,11 +37,12 @@ export default function App() {
   }, [location, shown.pathname]);
 
   return (
-    <div className="app">
+    <div className={dancing ? "app dancing" : "app"}>
       <Sidebar />
       <main className="content">
         <StageLayer />
         <SoundToggle />
+        <DanceToggle />
         <div className={leaving ? 'page-shell leaving' : 'page-shell'}>
           <Routes location={shown}>
             <Route path="/" element={<GamesPage />} />

@@ -30,10 +30,28 @@ export abstract class Scene {
   rgbPer: Float32Array | null = null;
   /** Glow size multiplier per class; 0 = no glow. */
   glow: number[] = [];
+  /** Per class, 1 = solid dots that hide what's behind them (needs `depth`); default is glowing dots. */
+  solid: number[] = [];
+  /** Per dot, distance from the camera from 0 (near) to 1 (far); null = all far. */
+  depth: Float32Array | null = null;
   /** How much the previous frame is cleared: 1 = fully, lower leaves motion trails. */
   trail = 0.4;
   /** False for frozen snapshots, which never update. */
   live = true;
+  /** Seconds the morph into this scene takes. */
+  morphIn = 1.1;
+  /** Optional order in which dots set off when morphing in (0 first, 1 last), spread over morphSpread seconds. */
+  morphDelay: Float32Array | null = null;
+  morphSpread = 0.2;
+  /** How dots travel into this scene: 'out' sets off at full speed then glides to a stop; 'inOut' eases in too. */
+  morphEase: 'out' | 'inOut' = 'out';
+  /**
+   * Optional range of dots [start, end) that the old scene's dots travel into; the rest of this scene's dots don't
+   * travel but appear where they are (for a scene with far more dots than the one before it).
+   */
+  morphOnly: [number, number] | null = null;
+  /** While true the stage skips this scene's updates and drawing, leaving the last frame on screen. */
+  paused = false;
   /** How strongly dots swirl away from the cursor (0 = not at all). */
   cursorForce = 1;
   /** Soft colored backlight behind the scene's main piece, updated each frame. */

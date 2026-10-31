@@ -15,6 +15,10 @@ export interface Frame {
   /** Glow size multiplier per dot (0 = none). */
   glow: Float32Array;
   glowAlpha: number;
+  /** Distance from the camera, 0 (near) to 1 (far, the default). Nearer dots hide farther ones. */
+  z: Float32Array;
+  /** 1 for solid dots, which hide whatever is behind them; 0 for glowing ones, which add light. */
+  solid: Uint8Array;
 }
 
 /** A big soft colored light behind a scene's main piece. Position and radius in CSS pixels. */
@@ -43,22 +47,31 @@ const BLOOM = 0.85;
 const POINT_VERT = `
 attribute vec2 aPos;
 attribute float aSize;
+attribute float aDepth;
 attribute vec4 aCol;
 uniform vec2 uRes;
 uniform float uDpr;
 varying vec4 vCol;
+varying float vRound;
 void main() {
   vec2 c = aPos / uRes * 2.0 - 1.0;
-  gl_Position = vec4(c.x, -c.y, 0.0, 1.0);
+  gl_Position = vec4(c.x, -c.y, aDepth * 2.0 - 1.0, 1.0);
   float px = aSize * uDpr;
   gl_PointSize = max(1.0, px);
   // Dots smaller than a pixel get dimmer instead of disappearing.
   vCol = vec4(aCol.rgb, aCol.a * min(1.0, px * px));
+  // Big dots (soft orbs, out-of-focus lights) are drawn as soft round discs; small ones stay crisp squares.
+  vRound = clamp((px - 8.0) / 8.0, 0.0, 1.0);
 }`;
 const POINT_FRAG = `
 precision mediump float;
 varying vec4 vCol;
-void main() { gl_FragColor = vec4(vCol.rgb * vCol.a, vCol.a); }`;
+varying float vRound;
+void main() {
+  float r = length(gl_PointCoord - 0.5) * 2.0;
+  float a = vCol.a * mix(1.0, 1.0 - smoothstep(0.45, 1.0, r), vRound);
+  gl_FragColor = vec4(vCol.rgb * a, a);
+}`;
 const QUAD_VERT = `
 attribute vec2 aPos;
 varying vec2 vUv;
@@ -123,13 +136,14 @@ void main() {
   gl_FragColor = vec4(c, 1.0);
 }`;
 
-const STRIDE = 7; // x, y, size, r, g, b, a
+const STRIDE = 8; // x, y, size, depth, r, g, b, a
 
 interface Target {
   tex: WebGLTexture;
   fb: WebGLFramebuffer;
   w: number;
   h: number;
+  depth?: WebGLRenderbuffer;
 }
 
 class GLRenderer implements Renderer {
@@ -172,9 +186,10 @@ class GLRenderer implements Renderer {
       if (!t) continue;
       gl.deleteTexture(t.tex);
       gl.deleteFramebuffer(t.fb);
+      if (t.depth) gl.deleteRenderbuffer(t.depth);
     }
     const fw = gl.drawingBufferWidth, fh = gl.drawingBufferHeight;
-    this.scene = this.target(fw, fh);
+    this.scene = this.target(fw, fh, true);
     const bw = Math.max(1, Math.round(fw / 4)), bh = Math.max(1, Math.round(fh / 4));
     this.bloomA = this.target(bw, bh);
     this.bloomB = this.target(bw, bh);
@@ -195,31 +210,32 @@ class GLRenderer implements Renderer {
 
   draw(f: Frame) {
     const gl = this.gl;
-    let glowCount = 0;
-    if (f.glowAlpha > 0) for (let i = 0; i < f.n; i++) if (f.glow[i] > 0 && f.a[i] > 0.004) glowCount++;
+    let glowCount = 0, solidCount = 0;
+    for (let i = 0; i < f.n; i++) {
+      if (f.a[i] <= 0.004) continue;
+      if (f.solid[i]) solidCount++;
+      if (f.glowAlpha > 0 && f.glow[i] > 0) glowCount++;
+    }
     const total = f.n + glowCount;
     if (this.data.length < total * STRIDE) this.data = new Float32Array(Math.ceil(total * 1.2) * STRIDE);
     const d = this.data;
     let o = 0;
-    if (glowCount) {
-      for (let i = 0; i < f.n; i++) {
-        const g = f.glow[i];
-        if (g <= 0 || f.a[i] <= 0.004) continue;
-        d[o] = f.x[i]; d[o + 1] = f.y[i]; d[o + 2] = f.s[i] * g;
-        d[o + 3] = f.r[i] / 255; d[o + 4] = f.g[i] / 255; d[o + 5] = f.b[i] / 255; d[o + 6] = f.a[i] * 0.06 * f.glowAlpha;
-        o += STRIDE;
-      }
-    }
-    for (let i = 0; i < f.n; i++) {
-      if (f.a[i] <= 0.004) continue;
-      d[o] = f.x[i]; d[o + 1] = f.y[i]; d[o + 2] = f.s[i];
-      d[o + 3] = f.r[i] / 255; d[o + 4] = f.g[i] / 255; d[o + 5] = f.b[i] / 255; d[o + 6] = f.a[i];
+    const put = (i: number, size: number, a: number) => {
+      d[o] = f.x[i]; d[o + 1] = f.y[i]; d[o + 2] = size; d[o + 3] = f.z[i];
+      d[o + 4] = f.r[i] / 255; d[o + 5] = f.g[i] / 255; d[o + 6] = f.b[i] / 255; d[o + 7] = a;
       o += STRIDE;
-    }
+    };
+    // Solid dots first (they fill in the depth), then the glowing ones, which hide behind them.
+    if (solidCount) for (let i = 0; i < f.n; i++) if (f.solid[i] && f.a[i] > 0.004) put(i, f.s[i], f.a[i]);
+    const solidEnd = o / STRIDE;
+    if (glowCount) for (let i = 0; i < f.n; i++) if (f.glow[i] > 0 && f.a[i] > 0.004) put(i, f.s[i] * f.glow[i], f.a[i] * 0.06 * f.glowAlpha);
+    for (let i = 0; i < f.n; i++) if (!f.solid[i] && f.a[i] > 0.004) put(i, f.s[i], f.a[i]);
 
     this.bind(this.scene);
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.ONE, gl.ONE);
+    gl.depthMask(true);
+    gl.clear(gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
     gl.useProgram(this.points);
     gl.uniform2f(gl.getUniformLocation(this.points, 'uRes'), this.w, this.h);
     gl.uniform1f(gl.getUniformLocation(this.points, 'uDpr'), this.dpr);
@@ -228,16 +244,29 @@ class GLRenderer implements Renderer {
     const F = 4;
     const aPos = gl.getAttribLocation(this.points, 'aPos');
     const aSize = gl.getAttribLocation(this.points, 'aSize');
+    const aDepth = gl.getAttribLocation(this.points, 'aDepth');
     const aCol = gl.getAttribLocation(this.points, 'aCol');
     gl.enableVertexAttribArray(aPos);
     gl.enableVertexAttribArray(aSize);
+    gl.enableVertexAttribArray(aDepth);
     gl.enableVertexAttribArray(aCol);
     gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, STRIDE * F, 0);
     gl.vertexAttribPointer(aSize, 1, gl.FLOAT, false, STRIDE * F, 2 * F);
-    gl.vertexAttribPointer(aCol, 4, gl.FLOAT, false, STRIDE * F, 3 * F);
-    gl.drawArrays(gl.POINTS, 0, o / STRIDE);
+    gl.vertexAttribPointer(aDepth, 1, gl.FLOAT, false, STRIDE * F, 3 * F);
+    gl.vertexAttribPointer(aCol, 4, gl.FLOAT, false, STRIDE * F, 4 * F);
+    if (solidEnd > 0) {
+      gl.disable(gl.BLEND);
+      gl.drawArrays(gl.POINTS, 0, solidEnd);
+    }
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE);
+    gl.depthMask(false);
+    gl.drawArrays(gl.POINTS, solidEnd, o / STRIDE - solidEnd);
+    gl.depthMask(true);
+    gl.disable(gl.DEPTH_TEST);
     gl.disableVertexAttribArray(aPos);
     gl.disableVertexAttribArray(aSize);
+    gl.disableVertexAttribArray(aDepth);
     gl.disableVertexAttribArray(aCol);
   }
 
@@ -284,7 +313,7 @@ class GLRenderer implements Renderer {
     this.drawQuad(p);
   }
 
-  private target(w: number, h: number): Target {
+  private target(w: number, h: number, withDepth = false): Target {
     const gl = this.gl;
     const tex = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -296,7 +325,13 @@ class GLRenderer implements Renderer {
     const fb = gl.createFramebuffer()!;
     gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
-    return { tex, fb, w, h };
+    if (!withDepth) return { tex, fb, w, h };
+    // A depth buffer, so solid dots can hide what's behind them.
+    const depth = gl.createRenderbuffer()!;
+    gl.bindRenderbuffer(gl.RENDERBUFFER, depth);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, w, h);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth);
+    return { tex, fb, w, h, depth };
   }
 
   private bind(t: Target | null) {
