@@ -464,12 +464,18 @@ export class CabinetScene extends Scene {
     this.rgb[EDGE] = this.rgb[MARQUEE] = [e[0], e[1], e[2]];
     this.rgb[SDIM] = mode === 'idle' ? [244, 244, 244] : [154, 154, 154];
 
-    // Static: full when idle, clears when hovered or zoomed in.
+    // Static: full when idle, clears when hovered or zoomed in (so the menu is easy to read). While a game plays,
+    // the cabinet around the screen keeps a good part of its sandy static and glow, so you're still playing in the
+    // arcade; the screen itself stays clean.
     const pt = this.pointerPos;
     const b = this.bbox;
     this.hovering = !zoomed && pt[0] >= b[0] && pt[0] <= b[2] && pt[1] >= b[1] && pt[1] <= b[3];
     this.stat += ((!zoomed && !this.hovering ? 1 : 0) - this.stat) * (still ? 1 : 0.08);
     const s = this.stat;
+    const frameStat = Math.max(s, 0.55 * this.playFade);
+    // (Zoomed in to play, the same dots cover far more of the page, so they're drawn bigger to stay a dense sand.)
+    const grain = 1 + 0.9 * zf * this.playFade;
+    let sv = s; // how much static the dots being drawn right now get
     if (!still && s > 0.4 && now > this.nextG) { this.gY = -0.5 + R() * 1.4; this.gDx = (R() - 0.5) * 0.14; this.gUntil = now + 90 + R() * 120; this.nextG = now + 700 + R() * 1600; }
     const glitch = now < this.gUntil ? this.gDx * s : 0;
     const gY = this.gY;
@@ -488,10 +494,10 @@ export class CabinetScene extends Scene {
     const X = this.x, Y = this.y, SZ = this.s, A = this.a, C = this.c;
     let w = 0;
     const emit = (x: number, y: number, z: number, a: number, size: number, cls: number) => {
-      if (s > 0.01) {
-        x += (R() - 0.5) * 0.03 * s; y += (R() - 0.5) * 0.03 * s; z += (R() - 0.5) * 0.03 * s;
-        if (R() < 0.12 * s) x += (R() - 0.5) * 0.25 * s;
-        a *= 1 - s * 0.6 * R();
+      if (sv > 0.01) {
+        x += (R() - 0.5) * 0.03 * sv; y += (R() - 0.5) * 0.03 * sv; z += (R() - 0.5) * 0.03 * sv;
+        if (R() < 0.12 * sv) x += (R() - 0.5) * 0.25 * sv;
+        a *= 1 - sv * 0.6 * R();
       }
       if (glitch && Math.abs(y - gY) < 0.05) x += glitch;
       proj(x, y, z);
@@ -503,10 +509,11 @@ export class CabinetScene extends Scene {
     let x0 = 1e9, y0 = 1e9, x1b = -1e9, y1b = -1e9;
     const BP = this.body.pts, BC = this.body.cls;
     const alphas = [0.85, 0.22, 0.7];
+    sv = frameStat;
     for (let i = 0; i < this.NB; i++) {
       const q = i * 3, cls = BC[i];
       const y = BP[q + 1];
-      let a = alphas[cls] * (1 - 0.55 * zf);
+      let a = alphas[cls] * (1 - 0.55 * zf * (1 - this.playFade));
       a *= bottomFade(y);
       // The control panel sits in front of the screen; fade it out while zoomed in.
       if (BP[q + 2] < -0.33) a *= 1 - zf;
@@ -517,11 +524,12 @@ export class CabinetScene extends Scene {
         if (py < y0) y0 = py;
         if (py > y1b) y1b = py;
       }
-      emit(BP[q], y, BP[q + 2], a, 1.3, cls);
+      emit(BP[q], y, BP[q + 2], a, 1.3 * grain, cls);
     }
     this.bbox = [x0 - 10, y0 - 10, x1b + 10, y1b + 10];
 
     // Screen.
+    sv = s;
     const sk = still ? 9 : (now - this.sStart) / this.sDur;
     const blink = mode === 'idle' && Math.sin(now * 0.006) < -0.2 ? 0.08 : 1;
     const { sFrom, sTo, sPos, lagS, swS, seedS, nG, nW, sBurst } = this;
@@ -556,14 +564,15 @@ export class CabinetScene extends Scene {
       const y = mFrom[q + 1] + (mTo[q + 1] - mFrom[q + 1]) * k + swM[q + 1] * bu * 0.6;
       const z = mFrom[q + 2] + (mTo[q + 2] - mFrom[q + 2]) * k - swM[q + 2] * bu;
       mPos[q] = x; mPos[q + 1] = y; mPos[q + 2] = z;
-      emit(x, y, z, 0.95 * (1 - 0.4 * zf) * signLevel, 1.5, MARQUEE);
+      sv = frameStat * 0.5;
+      emit(x, y, z, 0.95 * (1 - 0.4 * zf) * signLevel, 1.5 * grain, MARQUEE);
     }
 
     // TV snow around the cabinet while it's untuned, fading out toward the bottom like the body.
     for (let i = 0; i < NSN; i++) {
       const y = -0.62 + R() * 1.68;
       proj((R() * 2 - 1) * 0.62, y, (R() * 2 - 1) * 0.5);
-      X[w] = px; Y[w] = py; SZ[w] = 1.2; A[w] = s * 0.35 * R() * bottomFade(y); C[w] = SNOW;
+      X[w] = px; Y[w] = py; SZ[w] = 1.2 * grain; A[w] = frameStat * (0.35 + 0.15 * this.playFade) * R() * bottomFade(y); C[w] = SNOW;
       w++;
     }
 
@@ -588,7 +597,7 @@ export class CabinetScene extends Scene {
       y: cy - 0.18 * S,
       r: S * 1.35,
       rgb: [e[0], e[1], e[2]],
-      a: (0.14 + 0.04 * breathe) * (1 - 0.6 * zf) * (0.6 + 0.4 * signLevel),
+      a: (0.14 + 0.04 * breathe) * (1 - 0.6 * zf * (1 - 0.5 * this.playFade)) * (0.6 + 0.4 * signLevel),
     };
   }
 }

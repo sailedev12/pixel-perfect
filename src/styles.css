@@ -365,7 +365,8 @@ tr.you td { color: var(--gold); }
 
 /* The UI around the cabinet. */
 .hud { position: absolute; pointer-events: auto; display: flex; flex-direction: column; gap: 6px; }
-.hud-left { transform: translate(-100%, -50%); align-items: flex-end; text-align: right; }
+/* The score sits on the cabinet's sandy frame, so it gets a soft dark panel to stay readable. */
+.hud-left { transform: translate(-100%, -50%); align-items: flex-end; text-align: right; padding: 12px 14px; border-radius: 8px; background: rgba(6, 6, 6, 0.72); border: 1px solid rgba(255, 255, 255, 0.06); }
 .hud-right { transform: translate(0, -50%); width: 280px; max-height: 80vh; overflow: hidden; }
 .hud-bottom { transform: translate(-50%, 0); flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 8px; width: max-content; max-width: 92vw; }
 .hud-big { font-family: var(--mono); font-size: 44px; color: #fff; line-height: 1; text-shadow: 0 0 18px rgba(255, 77, 46, 0.4); margin-bottom: 10px; }
